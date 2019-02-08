@@ -19,7 +19,7 @@
 #include <tf/transform_listener.h>
 #include <velodyne_msgs/VelodyneScan.h>
 
-#include "driver.h"
+#include "velodyne_driver/driver.h"
 
 namespace velodyne_driver
 {
@@ -46,6 +46,11 @@ VelodyneDriver::VelodyneDriver(ros::NodeHandle node,
   else if (config_.model == "64E")
     {
       packet_rate = 2600.0;
+      model_full_name = std::string("HDL-") + config_.model;
+    }
+  else if (config_.model == "64E_S3") // generates 2222220 points per second (half for strongest and half for lastest)
+    {                                 // 1 packet holds 384 points
+      packet_rate = 5787.03;          // 2222220 / 384
       model_full_name = std::string("HDL-") + config_.model;
     }
   else if (config_.model == "32E")
@@ -177,13 +182,14 @@ bool VelodyneDriver::poll(void)
       std::size_t azimuth_data_pos = 100*0+2;
       int azimuth = *( (u_int16_t*) (&tmp_packet.data[azimuth_data_pos]));
 
-      // Handle overflow 35999->0
-      if(azimuth<last_azimuth)
-        last_azimuth-=36000;
-      // Check if currently passing cut angle
-      if(   last_azimuth != -1
-         && last_azimuth < config_.cut_angle
-         && azimuth >= config_.cut_angle )
+      //if first packet in scan, there is no "valid" last_azimuth
+      if (last_azimuth == -1) {
+      	 last_azimuth = azimuth;
+      	 continue;
+      }
+      if((last_azimuth < config_.cut_angle && config_.cut_angle <= azimuth)
+      	 || ( config_.cut_angle <= azimuth && azimuth < last_azimuth)
+      	 || (azimuth < last_azimuth && last_azimuth < config_.cut_angle))
       {
         last_azimuth = azimuth;
         break; // Cut angle passed, one full revolution collected
